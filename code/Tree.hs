@@ -1,7 +1,14 @@
 
 {-# LANGUAGE MultiParamTypeClasses, FlexibleInstances #-}
 
-module Tree where
+module Tree (
+  Tree(), Tree1(),
+  Measured(..),
+  empty, singleton,
+  view1, viewl, viewr,
+  search,
+  split, split1
+  ) where
 
 import Monoid
 
@@ -41,8 +48,29 @@ instance Measured a v => Semigroup (Tree v a) where
 instance Measured a v => Monoid (Tree v a) where
   mempty = Empty
 
+empty :: Tree v a
+empty = Empty
+
 singleton :: a -> Tree v a
 singleton = Full . Leaf
+
+view1 :: b -> (Tree1 v a -> b) -> Tree v a -> b
+view1 e f Empty = e
+view1 e f (Full t) = f t
+
+viewl :: Measured a v => b -> (a -> Tree v a -> b) -> Tree v a -> b
+viewl e f Empty = e
+viewl e f (Full t) = view f t
+  where
+    view f (Leaf x) = f x Empty
+    view f (Node _ l r) = view (\x t -> f x (t <> Full r)) l
+
+viewr :: Measured a v => b -> (Tree v a -> a -> b) -> Tree v a -> b
+viewr e f Empty = e
+viewr e f (Full t) = view f t
+  where
+    view f (Leaf x) = f Empty x
+    view f (Node _ l r) = view (f . (Full l <>)) r
 
 search :: Measured a v => (v -> Bool) -> Tree v a -> Maybe a
 search p (Full t) | p (measure t) = Just (left t)
@@ -59,7 +87,10 @@ search _ _ = Nothing
 
 split :: Measured a v => (v -> Bool) -> Tree v a -> (Tree v a, Tree v a)
 split _ Empty = (Empty, Empty)
-split p (Full t)
+split p (Full t) = split1 p t
+
+split1 :: Measured a v => (v -> Bool) -> Tree1 v a -> (Tree v a, Tree v a)
+split1 p t
   | p (measure t) = left t
   | otherwise = (Full t, Empty)
   where
