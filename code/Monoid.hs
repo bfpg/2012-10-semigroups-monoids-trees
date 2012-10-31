@@ -1,13 +1,19 @@
 
 module Monoid where
 
-import Prelude hiding(foldl,foldr)
+import Prelude hiding (foldl,foldr)
 import Data.Maybe
 
 infixr 6 <>
 
 class Semigroup s where
   (<>) :: s -> s -> s
+
+  -- A generalisation of mconcat in the standard library.
+  -- Defaults to foldMap1, but an instance may use foldl1 or
+  -- foldr1 if that would be more efficient for the particular
+  -- Semigroup. Edward Kmett's Reducer/Generator provide a 
+  -- more complete solution to this problem.
 
   sconcatMap :: Foldable1 t => (a -> s) -> t a -> s
   sconcatMap = foldMap1
@@ -24,6 +30,8 @@ class Semigroup m => Monoid m where
   mconcat :: Foldable t => t m -> m
   mconcat = mconcatMap id
 
+-- Foldable structures, allowing for empty structures.
+
 class Foldable t where
   foldMap :: Monoid m => (a -> m) -> t a -> m
 
@@ -35,6 +43,8 @@ class Foldable t where
 
   foldl :: (b -> a -> b) -> b -> t a -> b
   foldl f z t = appEndo (getDual (foldMap (Dual . Endo . flip f) t)) z
+
+-- Foldable non-empty structures.
 
 class Foldable t => Foldable1 t where
   foldMap1 :: Semigroup s => (a -> s) -> t a -> s
@@ -51,6 +61,10 @@ class Foldable t => Foldable1 t where
   foldl1 f = fromMaybe (error "foldl1: empty structure")
     . foldl g Nothing
     where g = maybe Just ((Just.).f)
+
+-- Instances taken from the standard library, except here we separate
+-- Semigroup and Monoid. For some simple examples, we generalise some
+-- functions from the Haskell Prelude for Foldable structures.
 
 instance Semigroup [a] where
   (<>) = (++)
@@ -69,6 +83,9 @@ instance (Semigroup a, Semigroup b) => Semigroup (a,b) where
 
 instance (Monoid a, Monoid b) => Monoid (a,b) where
   mempty = (mempty, mempty)
+
+-- See default foldr and foldl implementations in the Foldable class
+-- for an example use of Dual and Endo.
 
 newtype Dual a = Dual { getDual :: a }
   deriving (Eq, Ord, Read, Show, Bounded)
@@ -143,18 +160,29 @@ instance Semigroup s => Semigroup (Maybe s) where
 instance Semigroup s => Monoid (Maybe s) where
   mempty = Nothing
 
+-- First and Last here are not the same as in the standard Monoid library.
+-- There, the First/Last value is always wrapped in a Maybe, as is necessary
+-- to construct a Monoid instance. Here, we declare First/Last as Semigroup
+-- only, though the equivalent Monoid can be easily obtained with the Maybe
+-- instance above.
+
 newtype First a = First { getFirst :: a }
   deriving (Eq, Ord, Read, Show)
 
 instance Semigroup (First a) where
   First x <> First y = First x
 
+-- A non-empty structure always has a first element.
 head1 :: Foldable1 t => t a -> a
 head1 = getFirst . foldMap1 First
 
+-- A possibly-empty structure might not have a first element, so lift
+-- the (First a) semigroup to the (Maybe (First a)) monoid.
 head :: Foldable t => t a -> Maybe a
 head = fmap getFirst . foldMap (Just . First)
 
+-- If present, find the first element (x) such that (f x) is (Just y),
+-- for some (y), and return (Just y). Otherwise, return Nothing.
 findFirst :: Foldable t => (a -> Maybe b) -> t a -> Maybe b
 findFirst f = fmap getFirst . foldMap (fmap First . f)
 

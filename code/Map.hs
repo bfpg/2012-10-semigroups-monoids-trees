@@ -2,16 +2,19 @@
 {-# LANGUAGE MultiParamTypeClasses #-}
 
 module Map (
-  Map(), empty, lookup, insert, delete
+  Map(), split, empty, lookup, insert, delete, toList
   ) where
 
+import Control.Arrow ((&&&))
 import Monoid
-import Prelude hiding (lookup)
+import Prelude hiding (lookup,foldr)
 import qualified Tree as T
 import Tree (Tree, Measured(..))
 
--- For internal use
 data Elem k v = Elem { key :: k, value :: v }
+
+-- Assuming the tree is maintained in order, then the Last element
+-- in each subtree is also the greatest element in that subtree.
 
 instance Ord k => Measured (Elem k v) (Last k) where
   measure (Elem k v) = Last k
@@ -21,30 +24,29 @@ type MapI k v = Tree (Last k) (Elem k v)
 singleton :: k -> v -> MapI k v
 singleton k v = T.singleton (Elem k v)
 
-split :: Ord k => k -> MapI k v -> (MapI k v, MapI k v)
-split k = T.split (\i -> getLast i >= k)
-
-split3 :: Ord k => k -> MapI k v -> (MapI k v, MapI k v, MapI k v)
-split3 k t = case T.split (\i -> getLast i >= k) t of
+-- 3-way split: elements with keys <k, ==k, >k
+split :: Ord k => k -> MapI k v -> (MapI k v, MapI k v, MapI k v)
+split k t = case T.split (\i -> getLast i >= k) t of
   (l,r) -> case T.split (\i -> getLast i > k) r of
     (m,r) -> (l,m,r)
 
--- For export
 newtype Map k v = Map { unMap :: MapI k v }
 
 empty :: Map k v
 empty = Map T.empty
 
 lookup :: Ord k => k -> Map k v -> Maybe v
-lookup k = fmap value . T.search p . unMap
-  where
-    p (Last i) = i >= k
+lookup k (Map t) = case split k t of
+  (_,m,_) -> fmap getFirst (foldMap (Just . First . value) m)
 
-insert :: (Ord k, Semigroup v) => k -> v -> Map k v -> Map k v
-insert k v (Map t) = Map $ case split3 k t of
-  (l,m,r) -> l <> singleton k (T.view1 v ((<> v) . foldMap1 value) m) <> r
+insert :: Ord k => k -> v -> Map k v -> Map k v
+insert k v (Map t) = Map $ case split k t of
+  (l,_,r) -> l <> singleton k v <> r
 
 delete :: Ord k => k -> Map k v -> Map k v
-delete k (Map t) = Map $ case split3 k t of
-  (l,m,r) -> l <> r
+delete k (Map t) = Map $ case split k t of
+  (l,_,r) -> l <> r
+
+toList :: Map k v -> [(k,v)]
+toList = T.toList (key &&& value) . unMap
 
